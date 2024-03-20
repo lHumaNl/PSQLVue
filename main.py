@@ -7,7 +7,7 @@ from gui_interface import PsqlGuiApp
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PSQL Executor Utility")
+    parser = argparse.ArgumentParser(description="PSQLVue Executor Utility")
     parser.add_argument("-H", "--host", default='localhost', help="Database host")
     parser.add_argument("-p", "--port", default=5432, type=int, help="Database port")
     parser.add_argument("-u", "--user", required=True, help="Database user")

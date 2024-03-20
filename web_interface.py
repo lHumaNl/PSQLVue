@@ -12,5 +12,5 @@ def home():
 @app.route('/execute', methods=['POST'])
 def execute():
     query = request.form['query']
-    result = app.config['psql_connection'].execute_query(query)
+    result = app.config['psql_connection'].fetch_data(query)
     return "<pre>" + result + "</pre>"

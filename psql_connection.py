@@ -7,7 +7,8 @@ class PsqlConnection:
     def __init__(self, db_params):
         self.connection = self._connect_to_db(db_params)
 
-    def _connect_to_db(self, db_params):
+    @staticmethod
+    def _connect_to_db(db_params):
         try:
             conn = psycopg2.connect(
                 host=db_params['host'],
@@ -22,16 +23,25 @@ class PsqlConnection:
             logging.error(f"Unable to connect to the database: {e}")
             raise
 
-    def execute_query(self, query: str):
+    def fetch_data(self, query: str, is_autocommit: bool, offset=None, limit=None, all_data=False):
         with self.connection.cursor() as cursor:
+            if all_data:
+                paginated_query = query
+            elif offset is not None and limit is not None:
+                paginated_query = f"{query} LIMIT {limit} OFFSET {offset}"
+            elif offset is not None:
+                paginated_query = f"{query} OFFSET {offset}"
+            else:
+                paginated_query = f"{query} LIMIT {limit}"
+
             try:
-                cursor.execute(query)
-                if cursor.description:  # Если запрос возвращает данные
-                    # Создаем DataFrame из результатов запроса
+                cursor.execute(paginated_query)
+                if cursor.description:
                     columns = [desc[0] for desc in cursor.description]
                     result = pd.DataFrame(cursor.fetchall(), columns=columns)
-                else:  # Для запросов, не возвращающих данные
-                    self.connection.commit()
+                else:
+                    if is_autocommit:
+                        self.connection.commit()
                     result = None
                 return result
             except psycopg2.Error as e:
