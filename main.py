@@ -7,6 +7,9 @@ from gui_interface import PsqlGuiApp
 
 
 def main():
+    """
+        The main entry point of the application. Parses command line arguments and starts the application in GUI or HTTP interface mode.
+    """
     parser = argparse.ArgumentParser(description="PSQLVue Executor Utility")
     parser.add_argument("-H", "--host", default='localhost', help="Database host")
     parser.add_argument("-p", "--port", default=5432, type=int, help="Database port")
@@ -35,11 +38,23 @@ def main():
 
 
 def start_web_app(psql_connection):
+    """
+        Starts the web interface of the application.
+
+        Args:
+            psql_connection (PsqlConnection): An instance of PsqlConnection to be used by the Flask app.
+    """
     flask_app.config['psql_connection'] = psql_connection
     flask_app.run(debug=True)
 
 
 def start_gui_app(psql_connection):
+    """
+        Starts the GUI interface of the application.
+
+        Args:
+            psql_connection (PsqlConnection): An instance of PsqlConnection to be used by the Tkinter GUI app.
+    """
     root = tk.Tk()
     PsqlGuiApp(root, psql_connection)
     root.mainloop()

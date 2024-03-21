@@ -6,128 +6,164 @@ from pandas import DataFrame
 
 
 class PsqlGuiApp:
-    result_df: DataFrame
+    """
+        A GUI application for executing SQL queries against a PostgreSQL database and managing the results.
+    """
 
     def __init__(self, root, psql_connection):
-        self.row_limit = None
-        self.current_query = None
-        self.root = root
-        self.psql_connection = psql_connection
-        self.current_page = 0
-        self.rows_per_page = 100
-        self.total_rows = 0
-        self.loaded_rows = 0
+        """
+                Initializes the application's GUI components and sets up the database connection.
 
-        self.root.title("PSQLVue UI Executor")
-        self.context_menu = tk.Menu(root, tearoff=0)
-        self.query_input = tk.Text(self.root, height=10)
-        self.autocommit_var = tk.BooleanVar(value=False)
-        self.autocommit_checkbox = tk.Checkbutton(self.root, text="Autocommit", variable=self.autocommit_var)
-        self.execute_button = tk.Button(self.root, text="Execute", command=self.__execute_query)
-        self.export_button = tk.Button(self.root, text="Export Data", command=self.__export_data)
-        self.all_data_var = tk.BooleanVar(value=False)
-        self.all_data_checkbox = tk.Checkbutton(self.root, text="Export all data", variable=self.all_data_var)
-        self.tree_frame = tk.Frame(self.root)
-        self.tree_scroll = tk.Scrollbar(self.tree_frame)
-        self.info_label = tk.Label(self.root, text="Loaded rows: 0")
-        self.descr_buffer_label = tk.Label(self.root,
-                                           text="* If data from the clipboard does not paste into the SQL query "
-                                                "input field, try changing the keyboard layout and "
-                                                "try pasting the data again.")
-        self.result_tree = ttk.Treeview(self.tree_frame, yscrollcommand=self.tree_scroll.set, selectmode="extended")
+                Args:
+                    root: The root Tkinter widget.
+                    psql_connection (PsqlConnection): An instance of PsqlConnection to interact with the database.
+        """
+        self.__row_limit = None
+        self.__current_query = None
+        self.__root = root
+        self.__psql_connection = psql_connection
+        self.__current_page = 0
+        self.__rows_per_page = 100
+        self.__total_rows = 0
+        self.__loaded_rows = 0
+
+        self.__root.title("PSQLVue UI Executor")
+        self.__context_menu = tk.Menu(root, tearoff=0)
+        self.__query_input = tk.Text(self.__root, height=10)
+        self.__autocommit_var = tk.BooleanVar(value=False)
+        self.__autocommit_checkbox = tk.Checkbutton(self.__root, text="Autocommit", variable=self.__autocommit_var)
+        self.__execute_button = tk.Button(self.__root, text="Execute", command=self.__execute_query)
+        self.__export_button = tk.Button(self.__root, text="Export Data", command=self.__export_data)
+        self.__all_data_var = tk.BooleanVar(value=False)
+        self.__all_data_checkbox = tk.Checkbutton(self.__root, text="Export all data", variable=self.__all_data_var)
+        self.__tree_frame = tk.Frame(self.__root)
+        self.__tree_scroll = tk.Scrollbar(self.__tree_frame)
+        self.__info_label = tk.Label(self.__root, text="Loaded rows: 0")
+        self.__descr_buffer_label = tk.Label(self.__root,
+                                             text="* If data from the clipboard does not paste into the SQL query "
+                                                  "input field, try changing the keyboard layout and "
+                                                  "try pasting the data again.")
+        self.__result_tree = ttk.Treeview(self.__tree_frame, yscrollcommand=self.__tree_scroll.set,
+                                          selectmode="extended")
 
         self.__setup_ui()
 
     @staticmethod
     def __show_context_menu(event, menu):
+        """
+            Displays a context menu at the position of the mouse event.
+
+            Args:
+                event: The event object containing details about the mouse event.
+                menu: The menu object to be displayed as a context menu.
+        """
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
 
     def __copy_selected_result(self):
-        selected_items = self.result_tree.selection()
+        """
+            Copies the selected rows from the results table to the clipboard.
+        """
+        selected_items = self.__result_tree.selection()
         result_text = ""
         for item in selected_items:
-            item_text = self.result_tree.item(item, 'values')
+            item_text = self.__result_tree.item(item, 'values')
             result_text += ", ".join(item_text) + "\n"
-        self.root.clipboard_clear()
-        self.root.clipboard_append(result_text)
+        self.__root.clipboard_clear()
+        self.__root.clipboard_append(result_text)
 
     def __setup_ui(self):
-        query_input_context_menu = tk.Menu(self.root, tearoff=0)
-        query_input_context_menu.add_command(label="Copy", command=lambda: self.query_input.event_generate('<<Copy>>'))
-        query_input_context_menu.add_command(label="Cut", command=lambda: self.query_input.event_generate('<<Cut>>'))
+        """
+            Sets up the user interface components and their layout within the main application window.
+        """
+        query_input_context_menu = tk.Menu(self.__root, tearoff=0)
+        query_input_context_menu.add_command(label="Copy",
+                                             command=lambda: self.__query_input.event_generate('<<Copy>>'))
+        query_input_context_menu.add_command(label="Cut", command=lambda: self.__query_input.event_generate('<<Cut>>'))
         query_input_context_menu.add_command(label="Paste",
-                                             command=lambda: self.query_input.event_generate('<<Paste>>'))
+                                             command=lambda: self.__query_input.event_generate('<<Paste>>'))
 
-        result_tree_context_menu = tk.Menu(self.root, tearoff=0)
+        result_tree_context_menu = tk.Menu(self.__root, tearoff=0)
         result_tree_context_menu.add_command(label="Copy", command=self.__copy_selected_result)
 
-        self.query_input.bind("<Button-3>", lambda event: self.__show_context_menu(event, query_input_context_menu))
-        self.result_tree.bind("<Button-3>", lambda event: self.__show_context_menu(event, result_tree_context_menu))
+        self.__query_input.bind("<Button-3>", lambda event: self.__show_context_menu(event, query_input_context_menu))
+        self.__result_tree.bind("<Button-3>", lambda event: self.__show_context_menu(event, result_tree_context_menu))
 
-        self.query_input.pack(fill=tk.X, padx=5, pady=5)
-        self.descr_buffer_label.pack(anchor='w', padx=3)
-        self.execute_button.pack(pady=5)
-        self.autocommit_checkbox.pack(pady=5)
-        self.export_button.pack(pady=5)
-        self.all_data_checkbox.pack(pady=5)
+        self.__query_input.pack(fill=tk.X, padx=5, pady=5)
+        self.__descr_buffer_label.pack(anchor='w', padx=3)
+        self.__execute_button.pack(pady=5)
+        self.__autocommit_checkbox.pack(pady=5)
+        self.__export_button.pack(pady=5)
+        self.__all_data_checkbox.pack(pady=5)
 
-        self.tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.info_label.pack(padx=5, pady=5)
+        self.__tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.__tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.__info_label.pack(padx=5, pady=5)
 
-        self.tree_scroll.config(command=self.result_tree.yview)
-        self.result_tree.pack(fill=tk.BOTH, expand=True)
+        self.__tree_scroll.config(command=self.__result_tree.yview)
+        self.__result_tree.pack(fill=tk.BOTH, expand=True)
 
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
+        self.__root.grid_rowconfigure(0, weight=1)
+        self.__root.grid_columnconfigure(0, weight=1)
 
-        self.result_tree.bind('<MouseWheel>', self.__on_motion)
+        self.__result_tree.bind('<MouseWheel>', self.__on_motion)
 
     def __on_motion(self, event):
-        if self.result_tree.yview()[1] == 1.0:
+        """
+            Handles mouse wheel motion to load more data when the end of the scrollbar is reached.
+
+            Args:
+                event: The event object containing details about the mouse wheel motion.
+        """
+        if self.__result_tree.yview()[1] == 1.0:
             self.__next_page()
 
     def __next_page(self):
-        if self.loaded_rows < self.total_rows:
-            new_data = self.psql_connection.fetch_data(
-                self.current_query,
-                is_autocommit=self.autocommit_var.get(),
-                offset=self.loaded_rows,
-                limit=self.rows_per_page
+        """
+            Fetches the next page of data based on the current query, pagination settings, and updates the UI accordingly.
+        """
+        if self.__loaded_rows < self.__total_rows:
+            new_data = self.__psql_connection.fetch_data(
+                self.__current_query,
+                is_autocommit=self.__autocommit_var.get(),
+                offset=self.__loaded_rows,
+                limit=self.__rows_per_page
             )
 
             if isinstance(new_data, pd.DataFrame) and not new_data.empty:
-                self.result_df = pd.concat([self.result_df, new_data], ignore_index=True)
+                self.__result_df = pd.concat([self.__result_df, new_data], ignore_index=True)
                 self.__update_table(load_more=True)
 
     def __execute_query(self):
-        query = self.query_input.get("1.0", tk.END).strip()
+        """
+                Executes the SQL query specified in the query input box and displays the results.
+        """
+        query = self.__query_input.get("1.0", tk.END).strip()
         if not query:
             messagebox.showinfo("Info", "Please enter a query to execute.")
             return
 
-        self.current_query = query
-        is_autocommit = self.autocommit_var.get()
+        self.__current_query = query
+        is_autocommit = self.__autocommit_var.get()
 
-        self.total_rows = self.psql_connection.fetch_data(query, is_autocommit=is_autocommit, count_only=True)
-        if isinstance(self.total_rows, str):
-            messagebox.showerror("Error", self.total_rows)
+        self.__total_rows = self.__psql_connection.fetch_data(query, is_autocommit=is_autocommit, count_only=True)
+        if isinstance(self.__total_rows, str):
+            messagebox.showerror("Error", self.__total_rows)
             return
 
-        self.loaded_rows = 0
+        self.__loaded_rows = 0
 
-        result = self.psql_connection.fetch_data(query, is_autocommit=is_autocommit, limit=100, offset=0)
+        result = self.__psql_connection.fetch_data(query, is_autocommit=is_autocommit, limit=100, offset=0)
 
         if isinstance(result, pd.DataFrame):
-            self.result_df = result
-            self.current_page = 0
-            self.loaded_rows = 0
-            self.result_tree.yview_moveto(0)
-            for i in self.result_tree.get_children():
-                self.result_tree.delete(i)
+            self.__result_df = result
+            self.__current_page = 0
+            self.__loaded_rows = 0
+            self.__result_tree.yview_moveto(0)
+            for i in self.__result_tree.get_children():
+                self.__result_tree.delete(i)
             self.__update_table()
         elif isinstance(result, str):
             messagebox.showerror("Error", result)
@@ -135,31 +171,34 @@ class PsqlGuiApp:
             messagebox.showinfo("Result", "The query executed successfully but returned no data.")
 
     def __update_table(self, load_more=False):
-        if self.result_df is not None and not self.result_df.empty:
+        if self.__result_df is not None and not self.__result_df.empty:
             if not load_more:
-                for i in self.result_tree.get_children():
-                    self.result_tree.delete(i)
+                for i in self.__result_tree.get_children():
+                    self.__result_tree.delete(i)
 
-            start = self.loaded_rows
-            end = start + self.rows_per_page
-            page_df = self.result_df.iloc[start:end]
+            start = self.__loaded_rows
+            end = start + self.__rows_per_page
+            page_df = self.__result_df.iloc[start:end]
             page_df = page_df.reset_index()
 
             if not load_more or start == 0:
-                self.result_tree["columns"] = list(page_df.columns)
-                self.result_tree["show"] = "headings"
-                for column in self.result_tree["columns"]:
-                    self.result_tree.heading(column, text=column)
-                    self.result_tree.column(column, width=100)
+                self.__result_tree["columns"] = list(page_df.columns)
+                self.__result_tree["show"] = "headings"
+                for column in self.__result_tree["columns"]:
+                    self.__result_tree.heading(column, text=column)
+                    self.__result_tree.column(column, width=100)
 
             for row in page_df.itertuples(index=False):
-                self.result_tree.insert("", "end", values=row)
-                self.loaded_rows += 1
+                self.__result_tree.insert("", "end", values=row)
+                self.__loaded_rows += 1
 
-            self.info_label.config(text=f"Loaded rows: {self.loaded_rows}/{self.total_rows}")
+            self.__info_label.config(text=f"Loaded rows: {self.__loaded_rows}/{self.__total_rows}")
 
     def __export_data(self):
-        if not hasattr(self, 'result_df') or self.result_df is None or self.result_df.empty:
+        """
+            Initiates the export process for the currently loaded data or all data based on user selection.
+        """
+        if not hasattr(self, 'result_df') or self.__result_df is None or self.__result_df.empty:
             messagebox.showerror("Error", "Nothing to export!")
             return
 
@@ -172,8 +211,8 @@ class PsqlGuiApp:
         if not file_path:
             return
 
-        if self.all_data_var.get():
-            dialog = _ExportDialog(self.root, "Export Parameters")
+        if self.__all_data_var.get():
+            dialog = _ExportDialog(self.__root, "Export Parameters")
             if not hasattr(dialog, 'result'):
                 messagebox.showerror("Export", "Export config is not set.")
                 return
@@ -181,14 +220,14 @@ class PsqlGuiApp:
             file_size, file_rows, row_limit, row_offset = dialog.result
             download_all_data = row_limit is None and row_offset is None
 
-            all_data = self.psql_connection.fetch_data(self.current_query, is_autocommit=False, offset=row_offset,
-                                                       limit=row_limit, all_data=download_all_data)
+            all_data = self.__psql_connection.fetch_data(self.__current_query, is_autocommit=False, offset=row_offset,
+                                                         limit=row_limit, all_data=download_all_data)
         else:
-            if self.result_df.empty:
+            if self.__result_df.empty:
                 messagebox.showerror("Export", "No data to export.")
                 return
             else:
-                self.result_df.to_csv(file_path, index=False)
+                self.__result_df.to_csv(file_path, index=False)
                 messagebox.showinfo("Export", f"Data successfully exported.")
                 return
 
@@ -207,6 +246,14 @@ class PsqlGuiApp:
 
     @staticmethod
     def __export_by_file_rows(all_data: DataFrame, file_rows: int, file_path: str):
+        """
+            Splits and exports the data into multiple CSV files based on the specified number of rows per file.
+
+            Args:
+                all_data (DataFrame): The DataFrame containing all the data to be exported.
+                file_rows (int): The maximum number of rows per file.
+                file_path (str): The base file path for the exported CSV files.
+        """
         total_rows = len(all_data)
         estimated_file_count = int(total_rows // file_rows + (1 if total_rows % file_rows else 0))
 
@@ -231,6 +278,14 @@ class PsqlGuiApp:
 
     @staticmethod
     def __export_by_file_size(all_data: DataFrame, file_size: float, file_path: str):
+        """
+            Splits and exports the data into multiple CSV files based on the specified maximum file size.
+
+            Args:
+                all_data (DataFrame): The DataFrame containing all the data to be exported.
+                file_size (float): The maximum file size in megabytes.
+                file_path (str): The base file path for the exported CSV files.
+        """
         header = all_data.iloc[:0].to_csv(index=False)
 
         max_size_bytes = file_size * 1024 * 1024
@@ -275,7 +330,19 @@ class PsqlGuiApp:
 
 
 class _ExportDialog(simpledialog.Dialog):
+    """
+        A dialog window for configuring the parameters of the data export process.
+
+        Inherits from simpledialog.Dialog, providing a modal dialog with input fields for export configuration.
+    """
+
     def body(self, master):
+        """
+                Creates the dialog body, including input fields for file size limit, number of rows per file, total rows to fetch, and row offset.
+
+                Args:
+                    master: The parent window for this dialog.
+        """
         self.resizable(width=False, height=False)
 
         self.__file_size_var = tk.DoubleVar(value=0)
@@ -306,6 +373,9 @@ class _ExportDialog(simpledialog.Dialog):
         self.__toggle_export_choice()
 
     def __toggle_export_choice(self):
+        """
+                Toggles the state of the input fields based on the selected export option (by file size or by number of rows).
+        """
         if self.__export_choice_var.get() == "size":
             self.__file_size_entry.config(state='normal')
             self.__file_rows_entry.config(state='disabled')
@@ -314,6 +384,9 @@ class _ExportDialog(simpledialog.Dialog):
             self.__file_rows_entry.config(state='normal')
 
     def apply(self):
+        """
+                Processes the input from the dialog fields and sets the result attribute with the export parameters.
+        """
         file_size = self.__file_size_var.get() if self.__export_choice_var.get() == "size" else None
         file_rows = self.__file_rows_var.get() if self.__export_choice_var.get() == "rows" else None
         row_limit = self.__row_limit_var.get() if self.__row_limit_var.get() != 0 else None
