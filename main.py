@@ -41,7 +41,7 @@ def start_web_app(psql_connection):
 
 def start_gui_app(psql_connection):
     root = tk.Tk()
-    app = PsqlGuiApp(root, psql_connection)
+    PsqlGuiApp(root, psql_connection)
     root.mainloop()
 
 

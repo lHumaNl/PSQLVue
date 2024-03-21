@@ -23,16 +23,27 @@ class PsqlConnection:
             logging.error(f"Unable to connect to the database: {e}")
             raise
 
-    def fetch_data(self, query: str, is_autocommit: bool, offset=None, limit=None, all_data=False):
+    def fetch_data(self, query: str, is_autocommit: bool, offset=None, limit=None, all_data=False, count_only=False):
         with self.connection.cursor() as cursor:
-            if all_data:
-                paginated_query = query
-            elif offset is not None and limit is not None:
-                paginated_query = f"{query} LIMIT {limit} OFFSET {offset}"
-            elif offset is not None:
-                paginated_query = f"{query} OFFSET {offset}"
+            if count_only:
+                query = f"SELECT COUNT(*) FROM ({query}) AS subquery"
+
+                try:
+                    cursor.execute(query)
+                    return cursor.fetchone()[0]
+                except psycopg2.Error as e:
+                    logging.error(f"Database error: {e.pgerror}")
+                    self.connection.rollback()
+                    return f'Error: {e.pgerror}'
             else:
-                paginated_query = f"{query} LIMIT {limit}"
+                if all_data:
+                    paginated_query = query
+                elif offset is not None and limit is not None:
+                    paginated_query = f"{query} LIMIT {limit} OFFSET {offset}"
+                elif offset is not None:
+                    paginated_query = f"{query} OFFSET {offset}"
+                else:
+                    paginated_query = f"{query} LIMIT {limit}"
 
             try:
                 cursor.execute(paginated_query)
