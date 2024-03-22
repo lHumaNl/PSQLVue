@@ -26,6 +26,7 @@ class PsqlGuiApp:
         self.__rows_per_page = 100
         self.__total_rows = 0
         self.__loaded_rows = 0
+        self.__result_df = None
 
         self.__root.title("PSQLVue UI Executor")
         self.__context_menu = tk.Menu(root, tearoff=0)
@@ -208,7 +209,7 @@ class PsqlGuiApp:
         """
             Initiates the export process for the currently loaded data or all data based on user selection.
         """
-        if not hasattr(self, 'result_df') or self.__result_df is None or self.__result_df.empty:
+        if self.__result_df is None or self.__result_df.empty:
             messagebox.showerror("Error", "Nothing to export!")
             return
 
