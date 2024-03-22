@@ -29,7 +29,7 @@ class PsqlGuiApp:
 
         self.__root.title("PSQLVue UI Executor")
         self.__context_menu = tk.Menu(root, tearoff=0)
-        self.__query_input = tk.Text(self.__root, height=10)
+        self.__query_input = tk.Text(self.__root, height=10, undo=True)
         self.__autocommit_var = tk.BooleanVar(value=False)
         self.__autocommit_checkbox = tk.Checkbutton(self.__root, text="Autocommit", variable=self.__autocommit_var)
         self.__execute_button = tk.Button(self.__root, text="Execute", command=self.__execute_query)
@@ -91,6 +91,11 @@ class PsqlGuiApp:
         self.__query_input.bind("<Button-3>", lambda event: self.__show_context_menu(event, query_input_context_menu))
         self.__result_tree.bind("<Button-3>", lambda event: self.__show_context_menu(event, result_tree_context_menu))
 
+        self.__root.bind_all("<Control-z>", lambda event: self.__query_input.edit_undo())
+        self.__root.bind_all("<Control-y>", lambda event: self.__query_input.edit_redo())
+        self.__root.bind_all("<Control-c>", lambda event: self.__query_input.event_generate('<<Copy>>'))
+        self.__root.bind_all("<Control-x>", lambda event: self.__query_input.event_generate('<<Cut>>'))
+
         self.__query_input.pack(fill=tk.X, padx=5, pady=5)
         self.__descr_buffer_label.pack(anchor='w', padx=3)
         self.__execute_button.pack(pady=5)
@@ -134,7 +139,7 @@ class PsqlGuiApp:
 
             if isinstance(new_data, pd.DataFrame) and not new_data.empty:
                 self.__result_df = pd.concat([self.__result_df, new_data], ignore_index=True)
-                self.__update_table(load_more=True)
+                self.__update_table(self.__rows_per_page, load_more=True)
 
     def __execute_query(self):
         """
@@ -146,16 +151,21 @@ class PsqlGuiApp:
             return
 
         self.__current_query = query
-        is_autocommit = self.__autocommit_var.get()
 
-        self.__total_rows = self.__psql_connection.fetch_data(query, is_autocommit=is_autocommit, count_only=True)
+        self.__total_rows = self.__psql_connection.fetch_data(query, count_only=True)
+
         if isinstance(self.__total_rows, str):
             messagebox.showerror("Error", self.__total_rows)
             return
-
-        self.__loaded_rows = 0
-
-        result = self.__psql_connection.fetch_data(query, is_autocommit=is_autocommit, limit=100, offset=0)
+        elif isinstance(self.__total_rows, tuple):
+            result = self.__total_rows[1]
+            self.__total_rows = self.__total_rows[0]
+            total_rows = self.__total_rows
+        else:
+            self.__loaded_rows = 0
+            result = self.__psql_connection.fetch_data(query, is_autocommit=self.__autocommit_var.get(), limit=100,
+                                                       offset=0)
+            total_rows = self.__rows_per_page
 
         if isinstance(result, pd.DataFrame):
             self.__result_df = result
@@ -164,20 +174,20 @@ class PsqlGuiApp:
             self.__result_tree.yview_moveto(0)
             for i in self.__result_tree.get_children():
                 self.__result_tree.delete(i)
-            self.__update_table()
+            self.__update_table(loaded_rows=total_rows)
         elif isinstance(result, str):
             messagebox.showerror("Error", result)
         else:
             messagebox.showinfo("Result", "The query executed successfully but returned no data.")
 
-    def __update_table(self, load_more=False):
+    def __update_table(self, loaded_rows: int, load_more=False):
         if self.__result_df is not None and not self.__result_df.empty:
             if not load_more:
                 for i in self.__result_tree.get_children():
                     self.__result_tree.delete(i)
 
             start = self.__loaded_rows
-            end = start + self.__rows_per_page
+            end = start + loaded_rows
             page_df = self.__result_df.iloc[start:end]
             page_df = page_df.reset_index()
 
@@ -220,8 +230,8 @@ class PsqlGuiApp:
             file_size, file_rows, row_limit, row_offset = dialog.result
             download_all_data = row_limit is None and row_offset is None
 
-            all_data = self.__psql_connection.fetch_data(self.__current_query, is_autocommit=False, offset=row_offset,
-                                                         limit=row_limit, all_data=download_all_data)
+            all_data = self.__psql_connection.fetch_data(self.__current_query, is_autocommit=self.__autocommit_var,
+                                                         offset=row_offset, limit=row_limit, all_data=download_all_data)
         else:
             if self.__result_df.empty:
                 messagebox.showerror("Export", "No data to export.")

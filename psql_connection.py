@@ -1,3 +1,6 @@
+import os
+from tkinter import messagebox
+
 import psycopg2
 import pandas as pd
 import logging
@@ -8,8 +11,9 @@ class PsqlConnection:
         Manages the connection to a PostgreSQL database, allowing for executing queries and fetching data.
 
         Attributes:
-            connection: A psycopg2 connection object to the database.
+            __connection: A psycopg2 connection object to the database.
     """
+
     def __init__(self, db_params):
         """
                 Initializes the database connection using provided parameters.
@@ -17,7 +21,8 @@ class PsqlConnection:
                 Args:
                     db_params (dict): Database connection parameters including host, port, user, password, and dbname.
         """
-        self.connection = self.__connect_to_db(db_params)
+        self.__connection = self.__connect_to_db(db_params)
+        self.__cursor = self.__connection.cursor()
 
     @staticmethod
     def __connect_to_db(db_params):
@@ -47,7 +52,8 @@ class PsqlConnection:
             logging.error(f"Unable to connect to the database: {e}")
             raise
 
-    def fetch_data(self, query: str, is_autocommit: bool, offset=None, limit=None, all_data=False, count_only=False):
+    def fetch_data(self, query: str, is_autocommit: bool = False, offset: int = None, limit: int = None,
+                   all_data: bool = False, count_only: bool = False):
         """
                 Executes a given SQL query and fetches the data.
 
@@ -63,43 +69,110 @@ class PsqlConnection:
                     pandas.DataFrame: The fetched data as a DataFrame.
                     str: An error message if an error occurs.
         """
-        with self.connection.cursor() as cursor:
-            if count_only:
-                query = f"SELECT COUNT(*) FROM ({query}) AS subquery"
+        if query.lower().startswith('show '):
+            return self.__use_non_statement_mode_query(query)
+        else:
+            return self.__use_statement_mode_query(query, is_autocommit, offset, limit, all_data, count_only)
 
-                try:
-                    cursor.execute(query)
-                    return cursor.fetchone()[0]
-                except psycopg2.Error as e:
-                    logging.error(f"Database error: {e.pgerror}")
-                    self.connection.rollback()
-                    return f'Error: {e.pgerror}'
-            else:
-                if all_data:
-                    paginated_query = query
-                elif offset is not None and limit is not None:
-                    paginated_query = f"{query} LIMIT {limit} OFFSET {offset}"
-                elif offset is not None:
-                    paginated_query = f"{query} OFFSET {offset}"
+    def __use_non_statement_mode_query(self, query: str):
+        try:
+            if self.__connection.status == psycopg2.extensions.STATUS_BEGIN:
+                proceed = messagebox.askokcancel("",
+                                                 "You are attempting to execute a SHOW query in the database. "
+                                                 "However, the current session has an uncommitted transaction. "
+                                                 "Press Ok to COMMIT this transaction "
+                                                 "or Cancel to perform its ROLLBACK.")
+                if proceed:
+                    self.__connection.commit()
                 else:
-                    paginated_query = f"{query} LIMIT {limit}"
+                    self.__connection.rollback()
+
+            self.__connection.autocommit = True
+            self.__cursor.execute(query)
+            self.__connection.autocommit = False
+
+            columns = [desc[0] for desc in self.__cursor.description]
+            result = pd.DataFrame(self.__cursor.fetchall(), columns=columns)
+            rows = len(result)
+
+            return rows, result
+        except psycopg2.ProgrammingError as e:
+            logging.error(f"Error: {os.linesep.join(arg for arg in e.args)}")
+            self.__connection.rollback()
+            return f'Error: {os.linesep.join(arg for arg in e.args)}'
+
+        except psycopg2.Error as e:
+            logging.error(f"Database error: {e.pgerror}")
+            self.__connection.rollback()
+            return f'Database error: {e.pgerror}'
+
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            self.__connection.rollback()
+            return f'Error: {e}'
+
+    def __use_statement_mode_query(self, query: str, is_autocommit: bool, offset: int,
+                                   limit: int, all_data: bool, count_only: bool):
+        if count_only:
+            query = f"SELECT COUNT(*) FROM ({query}) AS subquery"
 
             try:
-                cursor.execute(paginated_query)
-                if cursor.description:
-                    columns = [desc[0] for desc in cursor.description]
-                    result = pd.DataFrame(cursor.fetchall(), columns=columns)
-                else:
-                    if is_autocommit:
-                        self.connection.commit()
-                    result = None
-                return result
+                self.__cursor.execute(query)
+                return self.__cursor.fetchone()[0]
+            except psycopg2.ProgrammingError as e:
+                logging.error(f"Error: {os.linesep.join(arg for arg in e.args)}")
+                self.__connection.rollback()
+                return f'Error: {os.linesep.join(arg for arg in e.args)}'
+
             except psycopg2.Error as e:
                 logging.error(f"Database error: {e.pgerror}")
-                self.connection.rollback()
-                return f'Error: {e.pgerror}'
+                self.__connection.rollback()
+                return f'Database error: {e.pgerror}'
+
+            except Exception as e:
+                logging.error(f"Error: {e}")
+                self.__connection.rollback()
+                return f'Error: {e}'
+
+        else:
+            if all_data:
+                paginated_query = query
+            elif offset is not None and limit is not None:
+                paginated_query = f"{query} LIMIT {limit} OFFSET {offset}"
+            elif offset is not None:
+                paginated_query = f"{query} OFFSET {offset}"
+            else:
+                paginated_query = f"{query} LIMIT {limit}"
+
+        try:
+            self.__cursor.execute(paginated_query)
+            if self.__cursor.description:
+                columns = [desc[0] for desc in self.__cursor.description]
+                result = pd.DataFrame(self.__cursor.fetchall(), columns=columns)
+
+                if is_autocommit:
+                    self.__connection.commit()
+            else:
+                if is_autocommit:
+                    self.__connection.commit()
+                result = None
+            return result
+        except psycopg2.ProgrammingError as e:
+            logging.error(f"Error: {os.linesep.join(arg for arg in e.args)}")
+            self.__connection.rollback()
+            return f'Error: {os.linesep.join(arg for arg in e.args)}'
+
+        except psycopg2.Error as e:
+            logging.error(f"Database error: {e.pgerror}")
+            self.__connection.rollback()
+            return f'Database error: {e.pgerror}'
+
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            self.__connection.rollback()
+            return f'Error: {e}'
 
     def close(self):
-        if self.connection:
-            self.connection.close()
+        if self.__connection:
+            self.__connection.close()
             logging.info("Database connection closed")
